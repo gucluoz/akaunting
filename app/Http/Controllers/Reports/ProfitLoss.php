@@ -10,11 +10,14 @@ use App\Models\Expense\Bill;
 use App\Models\Expense\BillPayment;
 use App\Models\Expense\Payment;
 use App\Models\Setting\Category;
+use App\Traits\DateTime;
 use Charts;
 use Date;
 
 class ProfitLoss extends Controller
 {
+    use DateTime;
+
     /**
      * Display a listing of the resource.
      *
@@ -28,7 +31,9 @@ class ProfitLoss extends Controller
         $year = request('year', Date::now()->year);
         
         // check and assign year start
-        if (($financial_start = Date::parse(setting('general.financial_start')))->month != 1) {
+        $financial_start = $this->getFinancialStart();
+
+        if ($financial_start->month != 1) {
             // check if a specific year is requested
             if (!is_null(request('year'))) {
                 $financial_start->year = $year;
@@ -169,7 +174,7 @@ class ProfitLoss extends Controller
     private function setAmount(&$totals, &$compares, $items, $type, $date_field)
     {
         foreach ($items as $item) {
-            if (($item['table'] == 'bill_payments') || ($item['table'] == 'invoice_payments')) {
+            if (($item->getTable() == 'bill_payments') || ($item->getTable() == 'invoice_payments')) {
                 $type_item = $item->$type;
 
                 $item->category_id = $type_item->category_id;

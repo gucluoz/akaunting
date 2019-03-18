@@ -5,6 +5,7 @@ return [
     'title'                 => 'API token',
     'api_token'             => 'Token',
     'my_apps'               => 'Uygulamalarım',
+    'pre_sale'              => 'Ön-Satış',
     'top_paid'              => 'Popüler Ücretli',
     'new'                   => 'Yeni',
     'top_free'              => 'Popüler Ücretsiz',
@@ -46,7 +47,7 @@ return [
         'unzip'             => ':module ayıklanıyor',
         'file_copy'         => ':module dosyaları kopyalanıyor.',
         'migrate'           => ':module uygulama güncellemeleri.',
-        'finish'            => 'Güncelleştirme başarıyla yüklendi. Java Update merkezi yönlendirme olabilir.',
+        'finish'            => 'Güncelleme başarıyla yüklendi. Güncelleme sayfasına yönlendiriliyorsunuz.',
         'install'           => ':module uygulamanın dosyaları yükleniyor.',
     ],
 
@@ -61,6 +62,7 @@ return [
 
     'badge' => [
         'installed' => 'Yüklü',
+        'pre_sale' => 'Ön-Satış',
     ],
 
     'button' => [

@@ -167,6 +167,17 @@ trait Modules
         return $installed;
     }
 
+    public function getPreSaleModules($data = [])
+    {
+        $response = $this->getRemote('apps/pre_sale', 'GET', $data);
+
+        if ($response && ($response->getStatusCode() == 200)) {
+            return json_decode($response->getBody())->data;
+        }
+
+        return [];
+    }
+
     public function getPaidModules($data = [])
     {
         $response = $this->getRemote('apps/paid', 'GET', $data);
@@ -360,9 +371,12 @@ trait Modules
             'version' => $module->get('version'),
         ];
 
+        Artisan::call('cache:clear');
+
         $module->delete();
 
-        Artisan::call('cache:clear');
+        // Cache Data clear
+        File::deleteDirectory(storage_path('framework/cache/data'));
 
         return [
             'success' => true,
@@ -537,7 +551,7 @@ trait Modules
         $headers['headers'] = [
             'Authorization' => 'Bearer ' . setting('general.api_token'),
             'Accept'        => 'application/json',
-            'Referer'       => env('APP_URL'),
+            'Referer'       => url('/'),
             'Akaunting'     => version('short'),
             'Language'      => language()->getShortCode()
         ];

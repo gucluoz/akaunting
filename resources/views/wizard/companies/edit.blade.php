@@ -56,7 +56,7 @@
         </div>
         {{ Form::textGroup('company_tax_number', trans('general.tax_number'), 'percent', []) }}
 
-        {{ Form::textGroup('financial_start', trans('settings.localisation.financial_start'), 'calendar-check-o', ['id' => 'financial_start', 'class' => 'form-control', 'data-inputmask' => '\'alias\': \'dd MM\'', 'data-mask' => '', 'autocomplete' => 'off'], Date::now()->startOfYear()->format('d F')) }}
+        {{ Form::textGroup('financial_start', trans('settings.localisation.financial_start'), 'calendar-check-o', ['id' => 'financial_start', 'class' => 'form-control', 'data-inputmask' => '\'alias\': \'dd-mm\'', 'data-mask' => '', 'autocomplete' => 'off'], Date::now()->startOfYear()->format('d-m')) }}
 
         {{ Form::textareaGroup('company_address', trans('settings.company.address')) }}
 
@@ -98,7 +98,7 @@
 
     $(document).ready(function() {
         $('#financial_start').datepicker({
-            format: 'dd MM',
+            format: 'dd-mm',
             todayBtn: 'linked',
             weekStart: 1,
             autoclose: true,
@@ -116,27 +116,23 @@
         });
 
         @if($company->company_logo)
-        company_logo_html  = '<span class="company_logo">';
-        company_logo_html += '    <a href="{{ url('uploads/' . $company->company_logo->id . '/download') }}">';
-        company_logo_html += '        <span id="download-company_logo" class="text-primary">';
-        company_logo_html += '            <i class="fa fa-file-{{ $company->company_logo->aggregate_type }}-o"></i> {{ $company->company_logo->basename }}';
-        company_logo_html += '        </span>';
-        company_logo_html += '    </a>';
-        company_logo_html += '    {!! Form::open(['id' => 'company_logo-' . $company->company_logo->id, 'method' => 'DELETE', 'url' => [url('uploads/' . $company->company_logo->id)], 'style' => 'display:inline']) !!}';
-        company_logo_html += '    <a id="remove-company_logo" href="javascript:void();">';
-        company_logo_html += '        <span class="text-danger"><i class="fa fa fa-times"></i></span>';
-        company_logo_html += '    </a>';
-        company_logo_html += '    <input type="hidden" name="page" value="setting" />';
-        company_logo_html += '    <input type="hidden" name="key" value="general.company_logo" />';
-        company_logo_html += '    <input type="hidden" name="value" value="{{ $company->company_logo->id }}" />';
-        company_logo_html += '    {!! Form::close() !!}';
-        company_logo_html += '</span>';
+        $.ajax({
+            url: '{{ url('uploads/' . $company->company_logo->id . '/show') }}',
+            type: 'GET',
+            data: {column_name: 'company_logo', page: 'setting', key: 'general.company_logo'},
+            dataType: 'JSON',
+            success: function(json) {
+                if (json['success']) {
+                    $('.form-group.col-md-6 .fancy-file').after(json['html']);
+                }
+            }
+        });
 
-        $('.form-group.col-md-6 .fancy-file .fake-file').append(company_logo_html);
-
+        @permission('delete-common-uploads')
         $(document).on('click', '#remove-company_logo', function (e) {
             confirmDelete("#company_logo-{!! $company->company_logo->id !!}", "{!! trans('general.attachment') !!}", "{!! trans('general.delete_confirm', ['name' => '<strong>' . $company->company_logo->basename . '</strong>', 'type' => strtolower(trans('general.attachment'))]) !!}", "{!! trans('general.cancel') !!}", "{!! trans('general.delete')  !!}");
         });
+        @endpermission
         @endif
     });
 </script>

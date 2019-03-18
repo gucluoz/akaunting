@@ -11,11 +11,12 @@ use App\Models\Income\InvoicePayment;
 use App\Models\Income\InvoiceTotal;
 use App\Models\Setting\Tax;
 use App\Traits\Currencies;
+use App\Traits\DateTime;
 use Date;
 
 class TaxSummary extends Controller
 {
-    use Currencies;
+    use Currencies, DateTime;
 
     /**
      * Display a listing of the resource.
@@ -30,7 +31,9 @@ class TaxSummary extends Controller
         $year = request('year', Date::now()->year);
         
         // check and assign year start
-        if (($financial_start = Date::parse(setting('general.financial_start')))->month != 1) {
+        $financial_start = $this->getFinancialStart();
+
+        if ($financial_start->month != 1) {
             // check if a specific year is requested
             if (!is_null(request('year'))) {
                 $financial_start->year = $year;
@@ -117,7 +120,7 @@ class TaxSummary extends Controller
     private function setAmount(&$items, &$totals, $rows, $type, $date_field)
     {
         foreach ($rows as $row) {
-            if ($row->getTable() == 'bill_payments' || $row->getTable() == 'invoice_payments') {
+            if (($row->getTable() == 'bill_payments') || ($row->getTable() == 'invoice_payments')) {
                 $type_row = $row->$type;
 
                 $row->category_id = $type_row->category_id;

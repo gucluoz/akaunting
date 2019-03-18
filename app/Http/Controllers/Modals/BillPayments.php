@@ -11,6 +11,7 @@ use App\Models\Expense\BillHistory;
 use App\Models\Setting\Currency;
 use App\Utilities\Modules;
 use App\Traits\Uploads;
+use App\Jobs\Expense\CreateBillPayment;
 
 class BillPayments extends Controller
 {
@@ -55,10 +56,12 @@ class BillPayments extends Controller
         $bill->grand_total = money($total, $currency->code)->getAmount();
 
         if (!empty($paid)) {
-            $bill->grand_total = $bill->total - $paid;
+            $bill->grand_total = round($bill->total - $paid, $currency->precision) ;
         }
 
-        $html = view('modals.bills.payment', compact('bill', 'accounts', 'currencies', 'currency', 'payment_methods'))->render();
+        $rand = rand();
+
+        $html = view('modals.bills.payment', compact('bill', 'accounts', 'currencies', 'currency', 'payment_methods', 'rand'))->render();
 
         return response()->json([
             'success' => true,
@@ -121,8 +124,8 @@ class BillPayments extends Controller
             $multiplier *= 10;
         }
 
-        $amount_check = $amount * $multiplier;
-        $total_amount_check = $total_amount * $multiplier;
+        $amount_check = (int) ($amount * $multiplier);
+        $total_amount_check = (int) (round($total_amount, $currency->precision) * $multiplier);
 
         if ($amount_check > $total_amount_check) {
             $error_amount = $total_amount;
@@ -158,7 +161,7 @@ class BillPayments extends Controller
                 'message' => $message,
                 'html' => 'null',
             ]);
-        } elseif ($amount == $total_amount) {
+        } elseif ($amount_check == $total_amount_check) {
             $bill->bill_status_code = 'paid';
         } else {
             $bill->bill_status_code = 'partial';
@@ -166,20 +169,7 @@ class BillPayments extends Controller
 
         $bill->save();
 
-        $bill_payment_request = [
-            'company_id'     => $request['company_id'],
-            'bill_id'        => $request['bill_id'],
-            'account_id'     => $request['account_id'],
-            'paid_at'        => $request['paid_at'],
-            'amount'         => $request['amount'],
-            'currency_code'  => $request['currency_code'],
-            'currency_rate'  => $request['currency_rate'],
-            'description'    => $request['description'],
-            'payment_method' => $request['payment_method'],
-            'reference'      => $request['reference']
-        ];
-
-        $bill_payment = BillPayment::create($bill_payment_request);
+        $bill_payment = dispatch(new CreateBillPayment($request, $bill));
 
         // Upload attachment
         if ($request->file('attachment')) {
@@ -187,15 +177,6 @@ class BillPayments extends Controller
 
             $bill_payment->attachMedia($media, 'attachment');
         }
-
-        $request['status_code'] = $bill->bill_status_code;
-        $request['notify'] = 0;
-
-        $desc_amount = money((float) $request['amount'], (string) $request['currency_code'], true)->format();
-
-        $request['description'] = $desc_amount . ' ' . trans_choice('general.payments', 1);
-
-        BillHistory::create($request->input());
 
         $message = trans('messages.success.added', ['type' => trans_choice('general.payments', 1)]);
 

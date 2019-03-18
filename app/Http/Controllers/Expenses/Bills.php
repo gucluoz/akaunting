@@ -161,7 +161,7 @@ class Bills extends Controller
     {
         $success = true;
 
-        $allowed_sheets = ['bills', 'bill_items', 'bill_histories', 'bill_payments', 'bill_totals'];
+        $allowed_sheets = ['bills', 'bill_items', 'bill_item_taxes', 'bill_histories', 'bill_payments', 'bill_totals'];
 
         // Loop through all sheets
         $import->each(function ($sheet) use (&$success, $allowed_sheets) {
@@ -245,7 +245,19 @@ class Bills extends Controller
      */
     public function destroy(Bill $bill)
     {
-        $this->deleteRelationships($bill, ['items', 'itemTaxes', 'histories', 'payments', 'recurring', 'totals']);
+        // Decrease stock
+        $bill->items()->each(function ($bill_item) {
+            $item = Item::find($bill_item->item_id);
+
+            if (empty($item)) {
+                return;
+            }
+
+            $item->quantity += (double) $bill_item->quantity;
+            $item->save();
+        });
+
+        $this->deleteRelationships($bill, ['items', 'item_taxes', 'histories', 'payments', 'recurring', 'totals']);
         $bill->delete();
 
         $message = trans('messages.success.deleted', ['type' => trans_choice('general.bills', 1)]);
@@ -263,15 +275,15 @@ class Bills extends Controller
     public function export()
     {
         \Excel::create('bills', function ($excel) {
-            $bills = Bill::with(['items', 'histories', 'payments', 'totals'])->filter(request()->input())->get();
+            $bills = Bill::with(['items', 'item_taxes', 'histories', 'payments', 'totals'])->filter(request()->input())->get();
 
             $excel->sheet('bills', function ($sheet) use ($bills) {
                 $sheet->fromModel($bills->makeHidden([
-                    'company_id', 'parent_id', 'created_at', 'updated_at', 'deleted_at', 'attachment', 'discount', 'items', 'histories', 'payments', 'totals', 'media', 'paid'
+                    'company_id', 'parent_id', 'created_at', 'updated_at', 'deleted_at', 'attachment', 'discount', 'items', 'item_taxes', 'histories', 'payments', 'totals', 'media', 'paid', 'amount_without_tax'
                 ]));
             });
 
-            $tables = ['items', 'histories', 'payments', 'totals'];
+            $tables = ['items', 'item_taxes', 'histories', 'payments', 'totals'];
             foreach ($tables as $table) {
                 $excel->sheet('bill_' . $table, function ($sheet) use ($bills, $table) {
                     $hidden_fields = ['id', 'company_id', 'created_at', 'updated_at', 'deleted_at', 'title'];
@@ -307,6 +319,15 @@ class Bills extends Controller
         $bill->bill_status_code = 'received';
         $bill->save();
 
+        // Add bill history
+        BillHistory::create([
+            'company_id' => $bill->company_id,
+            'bill_id' => $bill->id,
+            'status_code' => 'received',
+            'notify' => 0,
+            'description' => trans('bills.mark_recevied'),
+        ]);
+
         flash(trans('bills.messages.received'))->success();
 
         return redirect()->back();
@@ -339,7 +360,8 @@ class Bills extends Controller
 
         $currency_style = true;
 
-        $html = view($bill->template_path, compact('bill', 'currency_style'))->render();
+        $view = view($bill->template_path, compact('bill', 'currency_style'))->render();
+        $html = mb_convert_encoding($view, 'HTML-ENTITIES');
 
         $pdf = \App::make('dompdf.wrapper');
         $pdf->loadHTML($html);
@@ -359,6 +381,7 @@ class Bills extends Controller
     public function payment(PaymentRequest $request)
     {
         // Get currency object
+        $currencies = Currency::enabled()->pluck('rate', 'code')->toArray();
         $currency = Currency::where('code', $request['currency_code'])->first();
 
         $request['currency_code'] = $currency->code;
@@ -368,16 +391,28 @@ class Bills extends Controller
 
         $total_amount = $bill->amount;
 
-        $amount = (double) $request['amount'];
+        $default_amount = (double) $request['amount'];
 
-        if ($request['currency_code'] != $bill->currency_code) {
-            $request_bill = new Bill();
+        if ($bill->currency_code == $request['currency_code']) {
+            $amount = $default_amount;
+        } else {
+            $default_amount_model = new BillPayment();
 
-            $request_bill->amount = (float) $request['amount'];
-            $request_bill->currency_code = $currency->code;
-            $request_bill->currency_rate = $currency->rate;
+            $default_amount_model->default_currency_code = $bill->currency_code;
+            $default_amount_model->amount                = $default_amount;
+            $default_amount_model->currency_code         = $request['currency_code'];
+            $default_amount_model->currency_rate         = $currencies[$request['currency_code']];
 
-            $amount = $request_bill->getConvertedAmount();
+            $default_amount = (double) $default_amount_model->getDivideConvertedAmount();
+
+            $convert_amount = new BillPayment();
+
+            $convert_amount->default_currency_code = $request['currency_code'];
+            $convert_amount->amount = $default_amount;
+            $convert_amount->currency_code = $bill->currency_code;
+            $convert_amount->currency_rate = $currencies[$bill->currency_code];
+
+            $amount = (double) $convert_amount->getDynamicConvertedAmount();
         }
 
         if ($bill->payments()->count()) {
@@ -391,18 +426,44 @@ class Bills extends Controller
             $multiplier *= 10;
         }
 
-        $amount *=  $multiplier;
-        $total_amount *=  $multiplier;
+        $amount_check = (int) ($amount * $multiplier);
+        $total_amount_check = (int) (round($total_amount, $currency->precision) * $multiplier);
 
-        if ($amount > $total_amount) {
-            $message = trans('messages.error.over_payment');
+        if ($amount_check > $total_amount_check) {
+            $error_amount = $total_amount;
+
+            if ($bill->currency_code != $request['currency_code']) {
+                $error_amount_model = new BillPayment();
+
+                $error_amount_model->default_currency_code = $request['currency_code'];
+                $error_amount_model->amount                = $error_amount;
+                $error_amount_model->currency_code         = $bill->currency_code;
+                $error_amount_model->currency_rate         = $currencies[$bill->currency_code];
+
+                $error_amount = (double) $error_amount_model->getDivideConvertedAmount();
+
+                $convert_amount = new BillPayment();
+
+                $convert_amount->default_currency_code = $bill->currency_code;
+                $convert_amount->amount = $error_amount;
+                $convert_amount->currency_code = $request['currency_code'];
+                $convert_amount->currency_rate = $currencies[$request['currency_code']];
+
+                $error_amount = (double) $convert_amount->getDynamicConvertedAmount();
+            }
+
+            $message = trans('messages.error.over_payment', ['amount' => money($error_amount, $request['currency_code'], true)]);
 
             return response()->json([
                 'success' => false,
                 'error' => true,
+                'data' => [
+                    'amount' => $error_amount
+                ],
                 'message' => $message,
+                'html' => 'null',
             ]);
-        } elseif ($amount == $total_amount) {
+        } elseif ($amount_check == $total_amount_check) {
             $bill->bill_status_code = 'paid';
         } else {
             $bill->bill_status_code = 'partial';
